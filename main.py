@@ -1,6 +1,11 @@
 import sys
 import os
 
+# Set JAX memory flags before any JAX imports
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# Optional: helps with driver version mismatch warnings on some WSL versions
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
 # Ensure the src directory is in the path if running from root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
