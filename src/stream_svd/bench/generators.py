@@ -117,11 +117,10 @@ def make_tall_skinny(key, n=16384, m=128, dtype=jnp.float32):
 def make_stream(key, n, m, steps=8, drift=1e-2, dtype=jnp.float32):
     keys = random.split(key, steps + 1)
     M = random.normal(keys[0], (n, m), dtype)
-    out = [M]
+    yield M
     for i in range(steps):
         M = M + drift * random.normal(keys[i + 1], (n, m), dtype)
-        out.append(M)
-    return out
+        yield M
 
 
 def make_rotating_stream(key, n, m, steps=8, angle=0.02, dtype=jnp.float32):
@@ -131,17 +130,17 @@ def make_rotating_stream(key, n, m, steps=8, angle=0.02, dtype=jnp.float32):
     k1, k2, k3 = random.split(key, 3)
     U = rand_orth(k1, n, m, dtype)
     V = rand_orth(k2, m, m, dtype)
+    # Omega is a skew-symmetric matrix for rotation.
     Omega = random.normal(k3, (m, m), dtype)
     Omega = 0.5 * (Omega - Omega.T)
     s = jnp.geomspace(jnp.asarray(1.0, dtype), jnp.asarray(1e-3, dtype), m)
 
-    mats = []
     Vt = V
     for _ in range(steps + 1):
-        mats.append((U * s[None, :]) @ Vt.T)
+        yield (U * s[None, :]) @ Vt.T
+        # Update rotation: V' = V * exp(angle * Omega) approx V * (I + angle * Omega)
         Vt = Vt @ (jnp.eye(m, dtype=dtype) + angle * Omega)
         Vt, _ = jnp.linalg.qr(Vt, mode="reduced")
-    return mats
 
 
 def make_bad_v0_random(key, m, dtype=jnp.float32):
