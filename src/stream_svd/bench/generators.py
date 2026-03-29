@@ -1,9 +1,10 @@
 import jax.numpy as jnp
 from jax import random
 
+
 def rand_orth(key, rows: int, cols: int, dtype=jnp.float32):
     A = random.normal(key, (rows, cols), dtype)
-    Q, _ = jnp.linalg.qr(A, mode='reduced')
+    Q, _ = jnp.linalg.qr(A, mode="reduced")
     return Q
 
 
@@ -43,11 +44,13 @@ def make_repeated_singular_values(key, n, m, dtype=jnp.float32):
     a = m // 3
     b = m // 3
     c = m - a - b
-    s = jnp.concatenate([
-        jnp.full((a,), 1.0, dtype),
-        jnp.full((b,), 1e-1, dtype),
-        jnp.full((c,), 1e-3, dtype),
-    ])
+    s = jnp.concatenate(
+        [
+            jnp.full((a,), 1.0, dtype),
+            jnp.full((b,), 1e-1, dtype),
+            jnp.full((c,), 1e-3, dtype),
+        ]
+    )
     return (U * s[None, :]) @ V.T
 
 
@@ -59,7 +62,9 @@ def make_correlated_columns(key, n, m, rho=0.999, dtype=jnp.float32):
     return Z @ L.T
 
 
-def make_low_rank_plus_spikes(key, n, m, rank=8, spike_scale=100.0, noise=1e-2, dtype=jnp.float32):
+def make_low_rank_plus_spikes(
+    key, n, m, rank=8, spike_scale=100.0, noise=1e-2, dtype=jnp.float32
+):
     k1, k2, k3, k4, k5 = random.split(key, 5)
     A = random.normal(k1, (n, rank), dtype)
     B = random.normal(k2, (rank, m), dtype)
@@ -98,7 +103,11 @@ def make_cancellation_structure(key, n, m, dtype=jnp.float32):
     U = random.normal(k1, (n, 4), dtype)
     A = random.normal(k2, (4, m), dtype)
     B = random.normal(k3, (4, m), dtype)
-    return U @ A - jnp.asarray(0.999, dtype) * (U @ B) + 1e-3 * random.normal(k1, (n, m), dtype)
+    return (
+        U @ A
+        - jnp.asarray(0.999, dtype) * (U @ B)
+        + 1e-3 * random.normal(k1, (n, m), dtype)
+    )
 
 
 def make_tall_skinny(key, n=16384, m=128, dtype=jnp.float32):
@@ -131,7 +140,7 @@ def make_rotating_stream(key, n, m, steps=8, angle=0.02, dtype=jnp.float32):
     for _ in range(steps + 1):
         mats.append((U * s[None, :]) @ Vt.T)
         Vt = Vt @ (jnp.eye(m, dtype=dtype) + angle * Omega)
-        Vt, _ = jnp.linalg.qr(Vt, mode='reduced')
+        Vt, _ = jnp.linalg.qr(Vt, mode="reduced")
     return mats
 
 
@@ -141,4 +150,6 @@ def make_bad_v0_random(key, m, dtype=jnp.float32):
 
 def make_bad_v0_collinear(key, m, dtype=jnp.float32):
     base = random.normal(key, (m, 1), dtype)
-    return base @ jnp.ones((1, m), dtype=dtype) + 1e-3 * random.normal(key, (m, m), dtype)
+    return base @ jnp.ones((1, m), dtype=dtype) + 1e-3 * random.normal(
+        key, (m, m), dtype
+    )

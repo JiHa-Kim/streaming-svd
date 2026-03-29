@@ -4,12 +4,13 @@ from jax.scipy.linalg import solve_triangular
 
 Array = jax.Array
 
+
 def make_streaming_power_step(
     m: int,
     power_shift: float = 1e-4,
     jitter1: float = 1e-5,
     jitter2: float = 1e-6,
-    diag_floor_mult: float = 10.0
+    diag_floor_mult: float = 10.0,
 ):
     """
     Returns a jitted fp32 step
@@ -80,7 +81,9 @@ def make_streaming_power_step(
         V = step(M, V_prev)
         Y = M @ V
         # Avoid division by zero with small eps
-        U = Y / jnp.sqrt(jnp.sum(Y * Y, axis=0, keepdims=True) + jnp.asarray(1e-12, dtype))
+        U = Y / jnp.sqrt(
+            jnp.sum(Y * Y, axis=0, keepdims=True) + jnp.asarray(1e-12, dtype)
+        )
         return U, V
 
     return step, uv

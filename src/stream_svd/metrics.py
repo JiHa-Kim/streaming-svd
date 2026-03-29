@@ -2,10 +2,11 @@ import math
 import jax.numpy as jnp
 from jax import Array
 
+
 def orthogonality_fro(V: Array) -> Array:
     m = V.shape[1]
     I = jnp.eye(m, dtype=V.dtype)
-    return jnp.linalg.norm(0.5 * (V.T @ V + (V.T @ V).T) - I, ord='fro') / math.sqrt(m)
+    return jnp.linalg.norm(0.5 * (V.T @ V + (V.T @ V).T) - I, ord="fro") / math.sqrt(m)
 
 
 def orthogonality_max(V: Array) -> Array:
@@ -25,7 +26,7 @@ def subspace_residual(M: Array, V: Array) -> Array:
     G = M.T @ M
     T = V.T @ G @ V
     R = G @ V - V @ T
-    return jnp.linalg.norm(R, ord='fro') / (jnp.linalg.norm(G, ord='fro') + 1e-30)
+    return jnp.linalg.norm(R, ord="fro") / (jnp.linalg.norm(G, ord="fro") + 1e-30)
 
 
 def principal_angle_cosines(M: Array, V: Array):
