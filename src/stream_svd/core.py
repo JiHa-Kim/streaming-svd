@@ -1,11 +1,16 @@
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from .config import StreamingPowerConfig
 
 Array = jax.Array
 
-def make_streaming_power_step(m: int, cfg: StreamingPowerConfig = StreamingPowerConfig()):
+def make_streaming_power_step(
+    m: int,
+    power_shift: float = 1e-4,
+    jitter1: float = 1e-5,
+    jitter2: float = 1e-6,
+    diag_floor_mult: float = 10.0
+):
     """
     Returns a jitted fp32 step
 
@@ -43,7 +48,7 @@ def make_streaming_power_step(m: int, cfg: StreamingPowerConfig = StreamingPower
 
         diag = jnp.diag(Gram)
         eps = jnp.finfo(dtype).eps
-        tau = cfg.diag_floor_mult * eps * jnp.maximum(1.0, jnp.max(jnp.abs(diag)))
+        tau = diag_floor_mult * eps * jnp.maximum(1.0, jnp.max(jnp.abs(diag)))
         d = jnp.maximum(diag, tau)
         inv_sqrt_d = jax.lax.rsqrt(d)
 
@@ -62,12 +67,12 @@ def make_streaming_power_step(m: int, cfg: StreamingPowerConfig = StreamingPower
         V_prev = jnp.asarray(V_prev, dtype)
 
         G = M.T @ M
-        lam = jnp.asarray(cfg.power_shift, dtype) * _fro(G)
+        lam = jnp.asarray(power_shift, dtype) * _fro(G)
         W = (G + lam * I) @ V_prev
         H = V_prev.T @ W
-        Z = _chol_qr(W, H, cfg.jitter1)
+        Z = _chol_qr(W, H, jitter1)
         S = Z.T @ Z
-        V = _chol_qr(Z, S, cfg.jitter2)
+        V = _chol_qr(Z, S, jitter2)
         return V
 
     @jax.jit

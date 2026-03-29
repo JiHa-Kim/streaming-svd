@@ -1,10 +1,8 @@
 import time
-import math
 import jax
 import jax.numpy as jnp
 from jax import random
 
-from ..config import StreamingPowerConfig, SuiteConfig
 from ..core import make_streaming_power_step
 from ..metrics import (
     orthogonality_fro, orthogonality_max, subspace_residual,
@@ -69,10 +67,8 @@ def evaluate_case(step, name, M, V0, compute_svd_reference=True):
     return row
 
 
-def build_suite(cfg: SuiteConfig):
-    n = cfg.n
-    m = cfg.m
-    k = random.PRNGKey(cfg.seed)
+def build_suite(n: int = 2048, m: int = 128, seed: int = 0):
+    k = random.PRNGKey(seed)
     keys = random.split(k, 17)
 
     base = [
@@ -100,22 +96,28 @@ def build_suite(cfg: SuiteConfig):
     return base
 
 
-def run_suite(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig()):
-    cases = build_suite(suite_cfg)
+def run_suite(
+    n: int = 2048,
+    m: int = 128,
+    seed: int = 0,
+    compute_svd_reference: bool = True,
+    **sp_kwargs
+):
+    cases = build_suite(n=n, m=m, seed=seed)
     max_m = max(case['M'].shape[1] for case in cases)
-    step, _ = make_streaming_power_step(max_m, sp_cfg)
+    step, _ = make_streaming_power_step(max_m, **sp_kwargs)
 
     rows = []
     for case in cases:
         name, M, V0 = case['name'], case['M'], case['V0']
-        m = M.shape[1]
+        m_case = M.shape[1]
         # Rebuild only if width changes.
-        step_m, _ = (step, None) if m == max_m else make_streaming_power_step(m, sp_cfg)
-        row = evaluate_case(step_m, name, M, V0, suite_cfg.compute_svd_reference)
+        step_m, _ = (step, None) if m_case == max_m else make_streaming_power_step(m_case, **sp_kwargs)
+        row = evaluate_case(step_m, name, M, V0, compute_svd_reference)
         rows.append(row)
 
     cols = ['case', 'n', 'm', 'ms', 'finite', 'orth_fro', 'orth_max', 'residual', 'cond_est']
-    if suite_cfg.compute_svd_reference:
+    if compute_svd_reference:
         cols += ['cos_min', 'cos_mean', 'cos_max']
     print('\nSingle-step suite')
     print_table(rows, cols)
@@ -128,26 +130,34 @@ def run_suite(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig()):
         'worst_residual': max(r['residual'] for r in rows),
         'worst_cond_est': max(r['cond_est'] for r in rows),
     }
-    if suite_cfg.compute_svd_reference:
+    if compute_svd_reference:
         summary['worst_cos_min'] = min(r['cos_min'] for r in rows)
     print('\nSingle-step summary')
     print_table([summary], list(summary.keys()))
     return rows
 
 
-def run_streaming_examples(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig()):
-    step, _ = make_streaming_power_step(suite_cfg.m, sp_cfg)
-    k = random.PRNGKey(suite_cfg.seed + 123)
+def run_streaming_examples(
+    n: int = 2048,
+    m: int = 128,
+    seed: int = 0,
+    streaming_steps: int = 8,
+    streaming_drift: float = 1e-2,
+    compute_svd_reference: bool = True,
+    **sp_kwargs
+):
+    step, _ = make_streaming_power_step(m, **sp_kwargs)
+    k = random.PRNGKey(seed + 123)
     k1, k2 = random.split(k)
 
     experiments = [
-        ('drifting_gaussian', gen.make_stream(k1, suite_cfg.n, suite_cfg.m, suite_cfg.streaming_steps, suite_cfg.streaming_drift)),
-        ('rotating_subspace', gen.make_rotating_stream(k2, suite_cfg.n, suite_cfg.m, suite_cfg.streaming_steps, angle=0.02)),
+        ('drifting_gaussian', gen.make_stream(k1, n, m, streaming_steps, streaming_drift)),
+        ('rotating_subspace', gen.make_rotating_stream(k2, n, m, streaming_steps, angle=0.02)),
     ]
 
     all_rows = []
     for name, Ms in experiments:
-        V = jnp.eye(suite_cfg.m, dtype=jnp.float32)
+        V = jnp.eye(m, dtype=jnp.float32)
         rows = []
         for t, M in enumerate(Ms):
             # Warm state update.
@@ -162,7 +172,7 @@ def run_streaming_examples(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig(
                 'orth_fro': float(orthogonality_fro(V)),
                 'residual': float(subspace_residual(M, V)),
             }
-            if suite_cfg.compute_svd_reference:
+            if compute_svd_reference:
                 cmin, cmean, cmax = principal_angle_cosines(M, V)
                 row['cos_min'] = float(cmin)
                 row['cos_mean'] = float(cmean)
@@ -171,7 +181,7 @@ def run_streaming_examples(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig(
             all_rows.append(row)
 
         cols = ['experiment', 't', 'ms', 'finite', 'orth_fro', 'residual']
-        if suite_cfg.compute_svd_reference:
+        if compute_svd_reference:
             cols += ['cos_min', 'cos_mean', 'cos_max']
         print(f'\nStreaming example: {name}')
         print_table(rows, cols)
@@ -186,7 +196,7 @@ def run_streaming_examples(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig(
             'worst_orth_fro': max(r['orth_fro'] for r in rows),
             'worst_residual': max(r['residual'] for r in rows),
         }
-        if suite_cfg.compute_svd_reference:
+        if compute_svd_reference:
             summary['worst_cos_min'] = min(r['cos_min'] for r in rows)
         summary_rows.append(summary)
 
@@ -195,16 +205,23 @@ def run_streaming_examples(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig(
     return all_rows
 
 
-def run_bad_init_recovery(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig()):
-    step, _ = make_streaming_power_step(suite_cfg.m, sp_cfg)
-    k = random.PRNGKey(suite_cfg.seed + 999)
+def run_bad_init_recovery(
+    n: int = 2048,
+    m: int = 128,
+    seed: int = 0,
+    streaming_steps: int = 8,
+    compute_svd_reference: bool = True,
+    **sp_kwargs
+):
+    step, _ = make_streaming_power_step(m, **sp_kwargs)
+    k = random.PRNGKey(seed + 999)
     k1, k2 = random.split(k)
 
-    M = gen.make_controlled_spectrum(k1, suite_cfg.n, suite_cfg.m, cond=1e5)
-    V = gen.make_bad_v0_collinear(k2, suite_cfg.m)
+    M = gen.make_controlled_spectrum(k1, n, m, cond=1e5)
+    V = gen.make_bad_v0_collinear(k2, m)
 
     rows = []
-    for t in range(suite_cfg.streaming_steps + 1):
+    for t in range(streaming_steps + 1):
         _ = step(M, V)
         jax.block_until_ready(_)
         V, ms = _time_call(step, M, V)
@@ -215,7 +232,7 @@ def run_bad_init_recovery(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig()
             'orth_fro': float(orthogonality_fro(V)),
             'residual': float(subspace_residual(M, V)),
         }
-        if suite_cfg.compute_svd_reference:
+        if compute_svd_reference:
             cmin, cmean, cmax = principal_angle_cosines(M, V)
             row['cos_min'] = float(cmin)
             row['cos_mean'] = float(cmean)
@@ -223,20 +240,37 @@ def run_bad_init_recovery(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig()
         rows.append(row)
 
     cols = ['t', 'ms', 'finite', 'orth_fro', 'residual']
-    if suite_cfg.compute_svd_reference:
+    if compute_svd_reference:
         cols += ['cos_min', 'cos_mean', 'cos_max']
     print('\nRecovery from nearly-collinear V0')
     print_table(rows, cols)
     return rows
 
 
-def run_all(sp_cfg=StreamingPowerConfig(), suite_cfg=SuiteConfig()):
+def run_all(
+    n: int = 2048,
+    m: int = 128,
+    seed: int = 0,
+    streaming_steps: int = 8,
+    streaming_drift: float = 1e-2,
+    compute_svd_reference: bool = True,
+    **sp_kwargs
+):
     print('Streaming power iteration, fp32 only')
-    print('power_shift =', sp_cfg.power_shift)
-    print('jitter1     =', sp_cfg.jitter1)
-    print('jitter2     =', sp_cfg.jitter2)
-    print('diag_floor  =', sp_cfg.diag_floor_mult)
+    for k, v in sp_kwargs.items():
+        print(f'{k:<12} = {v}')
 
-    run_suite(sp_cfg, suite_cfg)
-    run_streaming_examples(sp_cfg, suite_cfg)
-    run_bad_init_recovery(sp_cfg, suite_cfg)
+    run_suite(n=n, m=m, seed=seed, compute_svd_reference=compute_svd_reference, **sp_kwargs)
+    run_streaming_examples(
+        n=n, m=m, seed=seed,
+        streaming_steps=streaming_steps,
+        streaming_drift=streaming_drift,
+        compute_svd_reference=compute_svd_reference,
+        **sp_kwargs
+    )
+    run_bad_init_recovery(
+        n=n, m=m, seed=seed,
+        streaming_steps=streaming_steps,
+        compute_svd_reference=compute_svd_reference,
+        **sp_kwargs
+    )
