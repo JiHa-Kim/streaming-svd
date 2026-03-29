@@ -9,6 +9,7 @@ from ..metrics import (
     principal_angle_cosines, condition_estimate, finite_ok
 )
 from . import generators as gen
+from . import hard_suite
 
 def _time_call(fn, *args):
     t0 = time.perf_counter()
@@ -64,6 +65,11 @@ def evaluate_case(step, name, M, V0, compute_svd_reference=True):
         row['cos_min'] = float(cmin)
         row['cos_mean'] = float(cmean)
         row['cos_max'] = float(cmax)
+    
+    # Approx GFLOPS: 2 * n * m^2 (for M^T M) + small terms.
+    n, m = M.shape
+    gflops = (2.0 * n * m * m) / (ms * 1e-3 * 1e9)
+    row['gflops'] = float(gflops)
     return row
 
 
@@ -116,7 +122,7 @@ def run_suite(
         row = evaluate_case(step_m, name, M, V0, compute_svd_reference)
         rows.append(row)
 
-    cols = ['case', 'n', 'm', 'ms', 'finite', 'orth_fro', 'orth_max', 'residual', 'cond_est']
+    cols = ['case', 'n', 'm', 'ms', 'gflops', 'finite', 'orth_fro', 'orth_max', 'residual', 'cond_est']
     if compute_svd_reference:
         cols += ['cos_min', 'cos_mean', 'cos_max']
     print('\nSingle-step suite')
@@ -274,3 +280,47 @@ def run_all(
         compute_svd_reference=compute_svd_reference,
         **sp_kwargs
     )
+
+
+def run_hard_bench(
+    n: int = 16384,
+    m: int = 4096,
+    seed: int = 42,
+    streaming_steps: int = 10,
+    compute_svd_reference: bool = False, # SVD ref is very slow for 16kx4k
+    **sp_kwargs
+):
+    print(f'Hard Test Suite ({n}x{m})')
+    cases = hard_suite.build_hard_suite(n=n, m=m, seed=seed)
+    
+    # We use a single step for the static cases.
+    step, _ = make_streaming_power_step(m, **sp_kwargs)
+    
+    rows = []
+    for case in cases:
+        name, M, V0 = case['name'], case['M'], case['V0']
+        print(f"Evaluating {name}...")
+        row = evaluate_case(step, name, M, V0, compute_svd_reference)
+        rows.append(row)
+        
+    cols = ['case', 'n', 'm', 'ms', 'gflops', 'finite', 'orth_fro', 'residual']
+    if compute_svd_reference:
+        cols += ['cos_min', 'cos_max']
+    print_table(rows, cols)
+    
+    # Also do a streaming version of the most difficult one (ill-conditioned)
+    print("\nStreaming Hard Case: Ill-Conditioned (1e7)")
+    M_hard = cases[1]['M']
+    V = jnp.eye(m, dtype=jnp.float32)
+    s_rows = []
+    for t in range(streaming_steps):
+        V, ms = _time_call(step, M_hard, V)
+        row = {
+            't': t,
+            'ms': ms,
+            'gflops': (2.0 * n * m * m) / (ms * 1e-3 * 1e9),
+            'orth_fro': float(orthogonality_fro(V)),
+            'residual': float(subspace_residual(M_hard, V))
+        }
+        s_rows.append(row)
+    print_table(s_rows, ['t', 'ms', 'gflops', 'orth_fro', 'residual'])

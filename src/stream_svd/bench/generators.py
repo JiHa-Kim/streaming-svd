@@ -135,6 +135,37 @@ def make_rotating_stream(key, n, m, steps=8, angle=0.02, dtype=jnp.float32):
     return mats
 
 
+def make_staircase_spectrum(key, n, m, blocks=4, gap=1e-1, dtype=jnp.float32):
+    k1, k2 = random.split(key)
+    U = rand_orth(k1, n, m, dtype)
+    V = rand_orth(k2, m, m, dtype)
+    
+    # Create blocks of equal singular values
+    block_size = m // blocks
+    s = []
+    for i in range(blocks):
+        val = (gap ** i)
+        s.append(jnp.full((block_size,), val, dtype))
+    
+    # Fill remaining.
+    remaining = m - (block_size * blocks)
+    if remaining > 0:
+        s.append(jnp.full((remaining,), gap ** blocks, dtype))
+    
+    s = jnp.concatenate(s)
+    return (U * s[None, :]) @ V.T
+
+
+def make_cliff_spectrum(key, n, m, cliff_rank=16, cliff_ratio=1e-6, dtype=jnp.float32):
+    k1, k2 = random.split(key)
+    U = rand_orth(k1, n, m, dtype)
+    V = rand_orth(k2, m, m, dtype)
+    
+    s = jnp.ones(m, dtype=dtype)
+    s = s.at[cliff_rank:].set(cliff_ratio)
+    return (U * s[None, :]) @ V.T
+
+
 def make_bad_v0_random(key, m, dtype=jnp.float32):
     return random.normal(key, (m, m), dtype)
 
